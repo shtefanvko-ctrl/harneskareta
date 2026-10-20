@@ -38,4 +38,3 @@
 +	written[manifestPath] = struct{}{}
  	return uploaded, written, nil
  }
- 
