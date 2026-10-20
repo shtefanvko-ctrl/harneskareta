@@ -47,6 +47,7 @@ jobs:
           git -C scion-src apply "$GITHUB_WORKSPACE/scion-p13/bootstrap-manifest-review.patch"
           cp scion-p13/tests/carat_bootstrap_manifest_regression_test.go scion-src/pkg/hub/
           cp scion-p13/tests/carat_template_manifest_regression_test.go scion-src/pkg/hub/
+          gofmt -w scion-src/pkg/hub/storage_helpers.go scion-src/pkg/hub/carat_*_test.go
           test -z "$(gofmt -l scion-src/pkg/hub/storage_helpers.go scion-src/pkg/hub/carat_*_test.go)"
           git -C scion-src diff --check
 
