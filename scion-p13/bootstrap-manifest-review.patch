@@ -1,0 +1,41 @@
+--- a/pkg/hub/storage_helpers.go
++++ b/pkg/hub/storage_helpers.go
+@@ -15,7 +15,9 @@
+ package hub
+ 
+ import (
++	"bytes"
+ 	"context"
++	"encoding/json"
+ 	"fmt"
+ 	"log/slog"
+ 	"net/http"
+@@ -200,6 +202,28 @@
+ 		uploaded = append(uploaded, r.file)
+ 		written[r.objectPath] = struct{}{}
+ 	}
++	// Bootstrap uploads must produce the manifest required by ValidateStorage.
++	// Respect an explicit source manifest instead of overwriting it.
++	manifestPath := storagePath + "/manifest.json"
++	for _, fi := range files {
++		if fi.Path == "manifest.json" {
++			return uploaded, written, nil
++		}
++	}
++	manifest := transfer.Manifest{
++		Version:     "1.0",
++		ContentHash: transfer.ComputeContentHash(files),
++		Files:       files,
++	}
++	manifestData, err := json.Marshal(manifest)
++	if err != nil {
++		return nil, nil, fmt.Errorf("%s: encode manifest: %w", label, err)
++	}
++	if _, err := stor.Upload(ctx, manifestPath, bytes.NewReader(manifestData),
++		storage.UploadOptions{ContentType: "application/json"}); err != nil {
++		return nil, nil, fmt.Errorf("%s: upload manifest: %w", label, err)
++	}
++	written[manifestPath] = struct{}{}
+ 	return uploaded, written, nil
+ }
+ 
