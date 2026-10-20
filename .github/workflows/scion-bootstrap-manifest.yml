@@ -1,0 +1,77 @@
+name: Scion bootstrap manifest P1.3 (isolated)
+on:
+  pull_request:
+    paths:
+      - 'scion-p13/**'
+      - '.github/workflows/scion-bootstrap-manifest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scion-p13-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-hub-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout CARAT review fixtures
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go 1.26.1
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.1'
+          cache: false
+
+      - name: Fetch pinned upstream Scion commit without credentials
+        env:
+          SCION_COMMIT: 253ba544c21255121d4059638c9b5c74b56ee42e
+        run: |
+          set -euo pipefail
+          mkdir scion-src
+          git -C scion-src init
+          git -C scion-src -c protocol.version=2 fetch --depth=1 https://github.com/GoogleCloudPlatform/scion.git "$SCION_COMMIT"
+          git -C scion-src checkout --detach FETCH_HEAD
+          test "$(git -C scion-src rev-parse HEAD)" = "$SCION_COMMIT"
+
+      - name: Apply proposed patch only to isolated Scion checkout
+        run: |
+          set -euo pipefail
+          git -C scion-src apply --check "$GITHUB_WORKSPACE/scion-p13/bootstrap-manifest-review.patch"
+          git -C scion-src apply "$GITHUB_WORKSPACE/scion-p13/bootstrap-manifest-review.patch"
+          cp scion-p13/tests/carat_bootstrap_manifest_regression_test.go scion-src/pkg/hub/
+          cp scion-p13/tests/carat_template_manifest_regression_test.go scion-src/pkg/hub/
+          test -z "$(gofmt -l scion-src/pkg/hub/storage_helpers.go scion-src/pkg/hub/carat_*_test.go)"
+          git -C scion-src diff --check
+
+      - name: Run Go Harness and template manifest regression
+        working-directory: scion-src
+        env:
+          GOTOOLCHAIN: local
+          GOMAXPROCS: '2'
+          GOFLAGS: -p=2
+        run: |
+          set -euo pipefail
+          go test -count=1 -timeout=12m ./pkg/hub -run '^TestCARAT' -v
+
+      - name: Run upstream Bootstrap and ValidateStorage regression
+        working-directory: scion-src
+        env:
+          GOTOOLCHAIN: local
+          GOMAXPROCS: '2'
+          GOFLAGS: -p=2
+        run: |
+          set -euo pipefail
+          go test -count=1 -timeout=12m ./pkg/hub -run 'TestValidateStorage|TestBootstrap' -v
+
+      - name: Confirm no live Scion configuration is referenced
+        run: |
+          set -euo pipefail
+          ! grep -R -E '/home/karetadmin/|\.scion/hub\.db|GROQ_API_KEY|GEMINI_API_KEY' scion-p13/tests/
+          echo 'Synthetic fixtures only: no production credentials or databases.'
